@@ -6,6 +6,20 @@ import matplotlib.pyplot as plt
 from imutils.video import VideoStream
 import imutils
 import time
+import json
+
+# Function to read the intrinsic and extrinsic parameters of each camera
+def camera_parameters(file):
+    camera_data = json.load(open(file))
+    K = np.array(camera_data['intrinsic']['doubles']).reshape(3, 3)
+    res = [camera_data['resolution']['width'],
+           camera_data['resolution']['height']]
+    tf = np.array(camera_data['extrinsic']['tf']['doubles']).reshape(4, 4)
+    R = tf[:3, :3]
+    T = tf[:3, 3].reshape(3, 1)
+    dis = np.array(camera_data['distortion']['doubles'])
+    return K, R, T, res, dis
+
 
 # Carrega a imagem a ser substituida
 img_subs = cv2.imread('hello.jpg')
@@ -27,10 +41,12 @@ arucoDetector = cv2.aruco.ArucoDetector(dictionary, parameters)
 count = 0
 
 videos = ["camera-00.mp4","camera-01.mp4","camera-02.mp4","camera-03.mp4"]
+calibrations = ["0.json","1.json","2.json","3.json"]
 coord_videos = np.array([])
 have_aruco = 0
-for video in videos:
-    cap = cv2.VideoCapture(video)
+for video,calibration in zip(videos,calibrations):
+    K0, R0, T0, res0, dis0 = camera_parameters('calibracao/' + calibration)
+    cap = cv2.VideoCapture("videos/" + video)
     while True:
         #captura um frame do video
         ret, frame = cap.read()
@@ -102,6 +118,7 @@ for video in videos:
                             coords = np.vstack((coords,np.array([frame_0_mean,frame_1_mean])))
             else:
                 have_aruco = 0
+                # Quando nao tem aruco reconhecido empilha [np.nan,np.nan]
                 if len(coords)==0:
                     coords = np.array([np.nan,np.nan])
                 else:
