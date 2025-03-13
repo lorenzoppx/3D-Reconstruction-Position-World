@@ -1,0 +1,121 @@
+# -*- coding: utf-8 -*-
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+from imutils.video import VideoStream
+import imutils
+import time
+
+# Carrega a imagem a ser substituida
+img_subs = cv2.imread('hello.jpg')
+img_subs = cv2.cvtColor(img_subs, cv2.COLOR_BGR2RGB)
+# Get the limits of the image that will be inserted in the original one
+[l,c,ch] = np.shape(img_subs)
+#print(l,' ',c,' ',' ',ch)
+
+# Source points are the corners of the image that will be warped
+pts_src = np.array([[0,0],[c,0],[c,l],[0,l]])
+
+#Load the dictionary that was used to generate the markers.
+#Initialize the detector parameters using default values
+aruco_id = 0
+parameters =  cv2.aruco.DetectorParameters()
+dictionary = cv2.aruco.getPredefinedDictionary(aruco_id)
+arucoDetector = cv2.aruco.ArucoDetector(dictionary, parameters)
+
+count = 0
+
+videos = ["camera-00.mp4","camera-01.mp4","camera-02.mp4","camera-03.mp4"]
+coord_videos = np.array([])
+have_aruco = 0
+for video in videos:
+    cap = cv2.VideoCapture(video)
+    while True:
+        #captura um frame do video
+        ret, frame = cap.read()
+        if ret:
+            frame_out = np.copy(frame)
+            # Detect the markers in the image
+            markerCorners, markerIds, rejectedCandidates = arucoDetector.detectMarkers(frame)
+            # Draw aruco markers
+            frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners,markerIds)
+            
+            coords = np.array([])
+
+            if len(markerCorners) != 0:
+                have_aruco = 1
+                for mark,id in zip(markerCorners,markerIds):
+                    # Testa se o aruco é o correto e está presente no frame
+                    if id[0]==0:
+                        # Define the source and destiny point for calculating the homography
+                        # Destiny points are the corners of the marker
+                        pts_dst = np.array(mark[0])
+                        print(np.shape(pts_dst))
+                        frame_0 = []
+                        frame_1 = []
+                        for i in range(0,np.shape(pts_dst)[0]):
+                            frame_0.append(pts_dst[i][0])
+                            frame_1.append(pts_dst[i][1])
+                            frame = cv2.circle(frame,(int(pts_dst[i][0]),int(pts_dst[i][1])),4,(150,150,0),3)
+                        frame_0_mean = int(np.mean(frame_0))
+                        frame_1_mean = int(np.mean(frame_1))
+                        print(frame_0_mean,frame_1_mean)
+
+                        # Calculate Homography
+                        h, status = cv2.findHomography(pts_src, pts_dst)
+
+                        # Warp source image to destination based on homography
+                        warped_image = cv2.warpPerspective(img_subs, h, (frame.shape[1],frame.shape[0]))
+                        warp_out = np.copy(warped_image)
+                    
+                        # Prepare a mask representing region to copy from the warped image into the original frame.
+                        mask = np.zeros([frame.shape[0], frame.shape[1]], dtype=np.uint8)
+
+                        cv2.fillConvexPoly(mask, np.int32([pts_dst]), (255, 255, 255), cv2.LINE_AA)
+
+                        # Erode the mask to not copy the boundary effects from the warping
+                        element = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+                        mask = cv2.erode(mask, element, iterations=3)
+
+                        # Copy the mask into 3 channels.
+                        warped_image = warped_image.astype(float)
+                        mask3 = np.zeros_like(warped_image)
+
+                        for i in range(0, 3):
+
+                            mask3[:,:,i] = mask/255
+
+                        # Copy the masked warped image into the original frame in the mask region.
+
+                        warped_image_masked = cv2.multiply(warped_image, mask3)
+                        frame_masked = cv2.multiply(frame.astype(float), 1-mask3)
+
+                        frame = cv2.add(warped_image_masked, frame_masked)
+                        #frame *= 255
+                        frame = np.uint8(frame)
+                        frame = cv2.circle(frame,(frame_0_mean,frame_1_mean),10,(0,0,255),3)
+                        
+                        if len(coords)==0:
+                            coords = np.array([frame_0_mean,frame_1_mean])
+                        else:
+                            coords = np.vstack((coords,np.array([frame_0_mean,frame_1_mean])))
+            else:
+                have_aruco = 0
+                if len(coords)==0:
+                    coords = np.array([np.nan,np.nan])
+                else:
+                    coords = np.vstack((coords,np.array([np.nan,np.nan])))   
+            time.sleep(0.03)
+            cv2.imshow('ImageFrame',frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+                # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            np.save(video.replace(".mp4",""),coords)
+            break
+    #print(np.max(frame))
+
+cap.release()
+cv2.destroyAllWindows()
