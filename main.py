@@ -20,6 +20,51 @@ def camera_parameters(file):
     dis = np.array(camera_data['distortion']['doubles'])
     return K, R, T, res, dis
 
+# Função para calcular W_i a partir dos parâmetros da câmera e coordenadas da imagem
+def compute_Wi(K, R, m_i):
+    m_i_h = np.array([m_i[0], m_i[1], 1]).reshape(3,1)
+    W_i = np.linalg.inv(K @ R) @ m_i_h
+    return W_i
+
+# Função para construir o sistema linear A * X = B
+def build_system(K_list, R_list, T_list, points):
+    A = []
+    B = []
+    for K, R, T, m in zip(K_list, R_list, T_list, points):
+        Wi = compute_Wi(K, R, m).flatten()
+
+        # Adiciona linhas à matriz A
+        A.append(np.hstack([-np.eye(3), Wi.reshape(-1, 1)]))
+        B.append(np.linalg.inv(R) @ T)
+
+    A = np.vstack(A)
+    B = np.vstack(B)
+    return A, B
+
+# Função para resolver o sistema usando pseudo-inversa
+def solve_system(A, B):
+    return np.linalg.pinv(A) @ B
+
+# Função para exibir os pontos reconstruídos no espaço 3D
+def plot_3D(coord_videos):
+    if coord_videos.size == 0:
+        print("Nenhum ponto reconstruído para exibir.")
+        return
+
+    W_x, W_y, W_z = coord_videos[:, 0], coord_videos[:, 1], coord_videos[:, 2]
+
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.scatter(W_x, W_y, W_z, c='red', marker='o', label="Pontos reconstruídos")
+    ax.plot(W_x, W_y, W_z, c='blue', linestyle='dashed')
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title("Trajetória do Objeto no Espaço 3D")
+    ax.legend()
+    plt.show()
 
 # Carrega a imagem a ser substituida
 img_subs = cv2.imread('hello.jpg')
@@ -132,7 +177,23 @@ for video,calibration in zip(videos,calibrations):
             print("Can't receive frame (stream end?). Exiting ...")
             np.save(video.replace(".mp4",""),coords)
             break
+        
+
+
     #print(np.max(frame))
 
 cap.release()
 cv2.destroyAllWindows()
+
+'''
+for instantes, pega os pontos nos 4 videos:
+    A, B = build_system(K, R, T, pts)
+    X = solve_system(A, B)  # Coordenada 3D estimada
+
+    # Adiciona as coordenadas reconstruídas ao array de trajetórias
+    new_coords = np.array([[X[0,0], X[1,0], X[2,0]]])
+    coord_videos = np.vstack((coord_videos, new_coords)) if coord_videos.size else new_coords
+
+    print("Coordenada 3D reconstruída:", X[:3].flatten())
+plot_3D(coord_videos) 
+'''
