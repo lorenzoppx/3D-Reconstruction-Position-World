@@ -88,9 +88,16 @@ count = 0
 videos = ["camera-00.mp4","camera-01.mp4","camera-02.mp4","camera-03.mp4"]
 calibrations = ["0.json","1.json","2.json","3.json"]
 coord_videos = np.array([])
+K_list = []
+R_List = []
+T_List = []
 have_aruco = 0
 for video,calibration in zip(videos,calibrations):
+    coord_video = np.array([])
     K0, R0, T0, res0, dis0 = camera_parameters('calibracao/' + calibration)
+    K_list.append(K0)
+    R_List.append(R0)
+    T_List.append(T0)
     cap = cv2.VideoCapture("videos/" + video)
     while True:
         #captura um frame do video
@@ -112,7 +119,7 @@ for video,calibration in zip(videos,calibrations):
                         # Define the source and destiny point for calculating the homography
                         # Destiny points are the corners of the marker
                         pts_dst = np.array(mark[0])
-                        print(np.shape(pts_dst))
+                        #print(np.shape(pts_dst))
                         frame_0 = []
                         frame_1 = []
                         for i in range(0,np.shape(pts_dst)[0]):
@@ -121,7 +128,7 @@ for video,calibration in zip(videos,calibrations):
                             frame = cv2.circle(frame,(int(pts_dst[i][0]),int(pts_dst[i][1])),4,(150,150,0),3)
                         frame_0_mean = int(np.mean(frame_0))
                         frame_1_mean = int(np.mean(frame_1))
-                        print(frame_0_mean,frame_1_mean)
+                        #print(frame_0_mean,frame_1_mean)
 
                         # Calculate Homography
                         h, status = cv2.findHomography(pts_src, pts_dst)
@@ -161,6 +168,12 @@ for video,calibration in zip(videos,calibrations):
                             coords = np.array([frame_0_mean,frame_1_mean])
                         else:
                             coords = np.vstack((coords,np.array([frame_0_mean,frame_1_mean])))
+                        
+                        if len(coord_video)==0:
+                            coord_video = np.array(coords)
+                        else: 
+                            coord_video = np.vstack((coord_video,coords))
+                        
             else:
                 have_aruco = 0
                 # Quando nao tem aruco reconhecido empilha [np.nan,np.nan]
@@ -168,6 +181,10 @@ for video,calibration in zip(videos,calibrations):
                     coords = np.array([np.nan,np.nan])
                 else:
                     coords = np.vstack((coords,np.array([np.nan,np.nan])))   
+                if len(coord_video)==0:
+                    coord_video = np.array(coords)
+                else: 
+                    coord_video = np.vstack((coord_video,coords))
             time.sleep(0.03)
             cv2.imshow('ImageFrame',frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -176,6 +193,13 @@ for video,calibration in zip(videos,calibrations):
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             np.save(video.replace(".mp4",""),coords)
+            print(len(coord_video))
+            if(len(coord_video)==197): #temporario
+                if len(coord_videos)==0:
+                    coord_videos = coord_video
+                else: 
+                    coord_videos = np.column_stack((coord_videos, coord_video))
+                print(coord_videos)
             break
         
 
@@ -185,15 +209,23 @@ for video,calibration in zip(videos,calibrations):
 cap.release()
 cv2.destroyAllWindows()
 
-'''
-for instantes, pega os pontos nos 4 videos:
-    A, B = build_system(K, R, T, pts)
+
+coord_trajeto = np.array([])
+for linha in coord_videos:
+    pts = []
+    for i in range(0, linha.shape[0], 2):
+        if(linha[i] != np.nan and linha[i+1] != np.nan):
+            pts.append([linha[i], linha[i+1]])
+    if len(pts)==0:
+        break
+    A, B = build_system(K_list, R_List, T_List, pts)
     X = solve_system(A, B)  # Coordenada 3D estimada
 
     # Adiciona as coordenadas reconstruídas ao array de trajetórias
     new_coords = np.array([[X[0,0], X[1,0], X[2,0]]])
-    coord_videos = np.vstack((coord_videos, new_coords)) if coord_videos.size else new_coords
-
+    if len(coord_trajeto)==0:
+        coord_trajeto = new_coords
+    else:
+        coord_trajeto = np.vstack((coord_trajeto, new_coords))
     print("Coordenada 3D reconstruída:", X[:3].flatten())
-plot_3D(coord_videos) 
-'''
+plot_3D(coord_trajeto) 
