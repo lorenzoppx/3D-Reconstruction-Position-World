@@ -99,20 +99,17 @@ for video,calibration in zip(videos,calibrations):
     R_List.append(R0)
     T_List.append(T0)
     cap = cv2.VideoCapture("videos/" + video)
-    coords = np.array([])
     while True:
         #captura um frame do video
         ret, frame = cap.read()
         if ret:
-            h,  w = frame.shape[:2]
-            print('Image size: ',h,' ',w)
-            #newcameramtx, roi=cv2.getOptimalNewCameraMatrix(K,dis,(w,h),1,(w,h))
-            #frame = cv2.undistort(frame, K, dis, None, newcameramtx)
             frame_out = np.copy(frame)
             # Detect the markers in the image
             markerCorners, markerIds, rejectedCandidates = arucoDetector.detectMarkers(frame)
             # Draw aruco markers
             frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners,markerIds)
+            
+            coords = np.array([])
 
             if len(markerCorners) != 0:
                 have_aruco = 1
@@ -134,7 +131,10 @@ for video,calibration in zip(videos,calibrations):
                         #print(frame_0_mean,frame_1_mean)
 
                         # Calculate Homography
-                        h, status = cv2.findHomography(pts_src, pts_dst)
+                        # Ensure they are numpy arrays
+                        pts_src = np.array(pts_src, dtype=np.float32)
+                        pts_dst = np.array(pts_dst, dtype=np.float32)
+                        h, status = cv2.findHomography(pts_src, pts_dst, cv2.RANSAC)
 
                         # Warp source image to destination based on homography
                         warped_image = cv2.warpPerspective(img_subs, h, (frame.shape[1],frame.shape[0]))
@@ -172,9 +172,11 @@ for video,calibration in zip(videos,calibrations):
                         else:
                             coords = np.vstack((coords,np.array([frame_0_mean,frame_1_mean])))
                         
-                        print("Exit")
-
-
+                        if len(coord_video)==0:
+                            coord_video = np.array(coords)
+                        else: 
+                            coord_video = np.vstack((coord_video,coords))
+                        
             else:
                 have_aruco = 0
                 # Quando nao tem aruco reconhecido empilha [np.nan,np.nan]
@@ -186,7 +188,6 @@ for video,calibration in zip(videos,calibrations):
                     coord_video = np.array(coords)
                 else: 
                     coord_video = np.vstack((coord_video,coords))
-                    
             time.sleep(0.03)
             cv2.imshow('ImageFrame',frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
