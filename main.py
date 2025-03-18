@@ -20,52 +20,6 @@ def camera_parameters(file):
     dis = np.array(camera_data['distortion']['doubles'])
     return K, R, T, res, dis
 
-# Função para calcular W_i a partir dos parâmetros da câmera e coordenadas da imagem
-def compute_Wi(K, R, m_i):
-    m_i_h = np.array([m_i[0], m_i[1], 1]).reshape(3,1)
-    W_i = np.linalg.inv(K @ R) @ m_i_h
-    return W_i
-
-# Função para construir o sistema linear A * X = B
-def build_system(K_list, R_list, T_list, points):
-    A = []
-    B = []
-    for K, R, T, m in zip(K_list, R_list, T_list, points):
-        Wi = compute_Wi(K, R, m).flatten()
-
-        # Adiciona linhas à matriz A
-        A.append(np.hstack([-np.eye(3), Wi.reshape(-1, 1)]))
-        B.append(np.linalg.inv(R) @ T)
-
-    A = np.vstack(A)
-    B = np.vstack(B)
-    return A, B
-
-# Função para resolver o sistema usando pseudo-inversa
-def solve_system(A, B):
-    return np.linalg.pinv(A) @ B
-
-# Função para exibir os pontos reconstruídos no espaço 3D
-def plot_3D(coord_videos):
-    if coord_videos.size == 0:
-        print("Nenhum ponto reconstruído para exibir.")
-        return
-
-    W_x, W_y, W_z = coord_videos[:, 0], coord_videos[:, 1], coord_videos[:, 2]
-
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111, projection='3d')
-
-    ax.scatter(W_x, W_y, W_z, c='red', marker='o', label="Pontos reconstruídos")
-    ax.plot(W_x, W_y, W_z, c='blue', linestyle='dashed')
-
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title("Trajetória do Objeto no Espaço 3D")
-    ax.legend()
-    plt.show()
-
 # Carrega a imagem a ser substituida
 img_subs = cv2.imread('hello.jpg')
 img_subs = cv2.cvtColor(img_subs, cv2.COLOR_BGR2RGB)
@@ -87,17 +41,12 @@ count = 0
 
 videos = ["camera-00.mp4","camera-01.mp4","camera-02.mp4","camera-03.mp4"]
 calibrations = ["0.json","1.json","2.json","3.json"]
-coord_videos = np.array([])
-K_list = []
-R_List = []
-T_List = []
+
+
+# Processa o vídeo para recuperar o centro dos arucos com id == 0
 have_aruco = 0
 for video,calibration in zip(videos,calibrations):
     coord_video = np.array([])
-    K0, R0, T0, res0, dis0 = camera_parameters('calibracao/' + calibration)
-    K_list.append(K0)
-    R_List.append(R0)
-    T_List.append(T0)
     cap = cv2.VideoCapture("videos/" + video)
     coords = np.array([])
     while True:
@@ -106,8 +55,6 @@ for video,calibration in zip(videos,calibrations):
         if ret:
             h,  w = frame.shape[:2]
             print('Image size: ',h,' ',w)
-            #newcameramtx, roi=cv2.getOptimalNewCameraMatrix(K,dis,(w,h),1,(w,h))
-            #frame = cv2.undistort(frame, K, dis, None, newcameramtx)
             frame_out = np.copy(frame)
             # Detect the markers in the image
             markerCorners, markerIds, rejectedCandidates = arucoDetector.detectMarkers(frame)
@@ -181,11 +128,7 @@ for video,calibration in zip(videos,calibrations):
                 if len(coords)==0:
                     coords = np.array([np.nan,np.nan])
                 else:
-                    coords = np.vstack((coords,np.array([np.nan,np.nan])))   
-                if len(coord_video)==0:
-                    coord_video = np.array(coords)
-                else: 
-                    coord_video = np.vstack((coord_video,coords))
+                    coords = np.vstack((coords,np.array([np.nan,np.nan])))
                     
             time.sleep(0.03)
             cv2.imshow('ImageFrame',frame)
@@ -195,39 +138,112 @@ for video,calibration in zip(videos,calibrations):
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             np.save(video.replace(".mp4",""),coords)
-            print(len(coord_video))
-            if(len(coord_video)==197): #temporario
-                if len(coord_videos)==0:
-                    coord_videos = coord_video
-                else: 
-                    coord_videos = np.column_stack((coord_videos, coord_video))
-                print(coord_videos)
             break
-        
-
-
-    #print(np.max(frame))
 
 cap.release()
 cv2.destroyAllWindows()
 
+# Processa as coordenadas para recuperar a informação 3D
+coord0 = np.load(f"camera-00.npy")
+coord1 = np.load(f"camera-01.npy")
+coord2 = np.load(f"camera-02.npy")
+coord3 = np.load(f"camera-03.npy")
+print(coord0)
 
-coord_trajeto = np.array([])
-for linha in coord_videos:
-    pts = []
-    for i in range(0, linha.shape[0], 2):
-        if(linha[i] != np.nan and linha[i+1] != np.nan):
-            pts.append([linha[i], linha[i+1]])
-    if len(pts)==0:
-        break
-    A, B = build_system(K_list, R_List, T_List, pts)
-    X = solve_system(A, B)  # Coordenada 3D estimada
+# Function to read the intrinsic and extrinsic parameters of each camera
+def camera_parameters(file):
+    camera_data = json.load(open(file))
+    K = np.array(camera_data['intrinsic']['doubles']).reshape(3, 3)
+    res = [camera_data['resolution']['width'],
+           camera_data['resolution']['height']]
+    tf = np.array(camera_data['extrinsic']['tf']['doubles']).reshape(4, 4)
+    R = tf[:3, :3]
+    T = tf[:3, 3].reshape(3, 1)
+    dis = np.array(camera_data['distortion']['doubles'])
+    return K, R, T, res, dis
 
-    # Adiciona as coordenadas reconstruídas ao array de trajetórias
-    new_coords = np.array([[X[0,0], X[1,0], X[2,0]]])
-    if len(coord_trajeto)==0:
-        coord_trajeto = new_coords
-    else:
-        coord_trajeto = np.vstack((coord_trajeto, new_coords))
-    print("Coordenada 3D reconstruída:", X[:3].flatten())
-plot_3D(coord_trajeto) 
+K0, R0, T0, res0, dis0 = camera_parameters('calibracao/0.json')
+K1, R1, T1, res1, dis1 = camera_parameters('calibracao/1.json')
+K2, R2, T2, res2, dis2 = camera_parameters('calibracao/2.json')
+K3, R3, T3, res3, dis3 = camera_parameters('calibracao/3.json')
+intr = [[K0, R0.T, -R0.T@T0, res0, dis0],
+        [K1, R1.T, -R1.T@T1, res1, dis1],
+        [K2, R2.T, -R2.T@T2, res2, dis2],
+        [K3, R3.T, -R3.T@T3, res3, dis3]]
+
+x = []
+y = []
+z = []
+count = 0
+for i in range(0,len(coord1)):
+    print("Count:",count)
+    count+=1
+
+    coord = np.array([[coord0[i]],[coord1[i]],[coord2[i]],[coord3[i]]], dtype=np.float64)
+    cam = []
+    for i in range(0,4):
+        if np.any(np.isnan(coord[i])):
+            continue
+        else:
+            cam.append(i)
+    print("cam",cam)
+    quant_cam = len(cam)
+    if quant_cam>=2:
+        flag = 0
+        offset = 1
+        B = np.array([])
+        for j in cam:
+            if flag==0:
+                K = intr[j][0]
+                R = intr[j][1]
+                T = intr[j][2]
+                pi0 = np.hstack((np.identity(3),np.zeros((3,1))))
+                G = np.vstack((np.hstack((R,T)),np.array([0.0,0.0,0.0,1.0])))
+                P = K@pi0@G
+                minus_m_til = np.array([float(-coord[j][0][0]),float(-coord[j][0][1]),-1]).reshape(-1,1)
+                B = np.hstack((P,minus_m_til,np.zeros((3,len(cam)-1))))
+                b = np.zeros((3,1))
+                flag = 1
+            else:
+                K = intr[j][0]
+                R = intr[j][1]
+                T = intr[j][2]
+                pi0 = np.hstack((np.identity(3),np.zeros((3,1))))
+                G = np.vstack((np.hstack((R,T)),np.array([0.0,0.0,0.0,1.0])))
+                P = K@pi0@G
+                minus_m_til = np.array([float(-coord[j][0][0]),float(-coord[j][0][1]),-1]).reshape(-1,1)
+                Bi = np.hstack((P,np.zeros((3,offset)),minus_m_til,np.zeros((3,len(cam)-1-offset))))
+                B = np.vstack((B,Bi))
+                b = np.vstack((b,np.zeros((3,1))))
+                offset+=1
+        print(coord)
+        print(np.isnan(coord))
+        #lambda_ = np.linalg.pinv(B)@b
+        U,S,V = np.linalg.svd(B)
+        X = V[-1,:4]
+        if X[3]==0:
+            X[3]==1e-10
+        lambda_ = X / X[3]
+        print("x:",lambda_[0])
+        x.append(lambda_[0])
+        print("y:",lambda_[1])
+        y.append(lambda_[1])
+        print("z:",lambda_[2])
+        z.append(lambda_[2])
+        print(np.shape(lambda_))
+        print(lambda_)
+
+# Create a 3D plot
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+ax.set_xlabel("x axis")
+ax.set_ylabel("y axis")
+ax.set_zlabel("z axis")
+ax.set_title("Trajetória do Objeto no Espaço 3D")
+
+# Plot the points
+ax.scatter(np.array(x).T, np.array(y).T, np.array(z).T, c='r', marker='o')
+
+plt.show()
+
