@@ -43,7 +43,7 @@ for i in range(0,len(coord1)):
     print("Count:",count)
     count+=1
 
-    coord = np.array([[coord0[i]],[coord1[i]],[coord2[i]],[coord3[i]]], dtype=np.float64)
+    coord = np.array([[coord0[i]],[coord1[i]],[coord2[i]],[coord3[i]]])
     cam = []
     for i in range(0,4):
         if np.any(np.isnan(coord[i])):
@@ -89,54 +89,47 @@ for i in range(0,len(coord1)):
         print(np.shape(lambda_))
         print(lambda_/lambda_[-1,0])
     """
-
-    flag = 0
-    offset = 1
-    B = np.array([])
-    for j in cam:
-        if flag==0:
-            K = intr[j][0]
-            R = intr[j][1]
-            T = intr[j][2]
-            pi0 = np.hstack((np.identity(3),np.zeros((3,1))))
-            G = np.vstack((np.hstack((R,T)),np.array([0.0,0.0,0.0,1.0])))
-            P = K@pi0@G
-            minus_m_til = np.array([float(-coord[j][0][0]),float(-coord[j][0][1]),-1]).reshape(-1,1)
-            B = np.hstack((P,minus_m_til,np.zeros((3,len(cam)-1))))
-            b = np.zeros((3,1))
-            flag = 1
-        else:
-            K = intr[j][0]
-            R = intr[j][1]
-            T = intr[j][2]
-            pi0 = np.hstack((np.identity(3),np.zeros((3,1))))
-            G = np.vstack((np.hstack((R,T)),np.array([0.0,0.0,0.0,1.0])))
-            P = K@pi0@G
-            minus_m_til = np.array([float(-coord[j][0][0]),float(-coord[j][0][1]),-1]).reshape(-1,1)
-            Bi = np.hstack((P,np.zeros((3,offset)),minus_m_til,np.zeros((3,len(cam)-1-offset))))
-            B = np.vstack((B,Bi))
-            b = np.vstack((b,np.zeros((3,1))))
-            offset+=1
-    print(coord)
-    print(np.isnan(coord))
-    #lambda_ = np.linalg.pinv(B)@b
-    U,S,V = np.linalg.svd(B)
-    X = V[-1,:4]
-    #X[X==0]=1e-10
-    lambda_ = X / X[3]
-    #lambda_, residuals, rank, s = np.linalg.lstsq(A, b.reshape(-1, 1), rcond=None)
-    #lambda_ = np.linalg.pinv(A, rcond=1e-10) @ b.reshape(-1, 1)
-    #rank_A = np.linalg.matrix_rank(A)
-    #if rank_A != min(A.shape):
-    #    raise Error
-    print("x:",lambda_[0])
-    x.append(lambda_[0])
-    print("y:",lambda_[1])
-    y.append(lambda_[1])
-    print("z:",lambda_[2])
-    z.append(lambda_[2])
-    print(np.shape(lambda_))
-    print(lambda_)
+    if quant_cam == 3:
+        flag = 0
+        W = np.array([])
+        for j in cam:
+            if flag==0:
+                K = intr[j][0]
+                R = intr[j][1]
+                T = intr[j][2]
+                if np.any(np.isnan(coord[j])):
+                    raise nan_error
+                W = np.array(calculate_wi(K,R,coord[j][0][0],coord[j][0][1]))
+                b = np.array(np.linalg.inv(R)@T)
+                flag = 1
+            else:
+                K = intr[j][0]
+                R = intr[j][1]
+                T = intr[j][2]
+                W = np.hstack((W,calculate_wi(K,R,coord[j][0][0],coord[j][0][1])))
+                b = np.hstack((b,np.linalg.inv(R)@T))
+        I = np.identity(3)
+        O = np.zeros((3,1))
+        A1 = np.hstack([-I,W[:,0].reshape(-1, 1),O,O])
+        A2 = np.hstack([-I,O,W[:,1].reshape(-1, 1),O])
+        A3 = np.hstack([-I,O,O,W[:,2].reshape(-1, 1)])
+        A = np.vstack([A1,A2,A3])
+        print(coord)
+        print(np.isnan(coord))
+        #lambda_ = np.linalg.pinv(A)@b.reshape(-1, 1)
+        lambda_, residuals, rank, s = np.linalg.lstsq(A, b.reshape(-1, 1), rcond=None)
+        #lambda_ = np.linalg.pinv(A, rcond=1e-10) @ b.reshape(-1, 1)
+        rank_A = np.linalg.matrix_rank(A)
+        #if rank_A != min(A.shape):
+        #    raise Error
+        print("x:",lambda_[0,0])
+        x.append(lambda_[0,0])
+        print("y:",lambda_[1,0])
+        y.append(lambda_[1,0])
+        print("z:",lambda_[2,0])
+        z.append(lambda_[2,0])
+        print(np.shape(lambda_))
+        print(lambda_)
     
     """
     #error
